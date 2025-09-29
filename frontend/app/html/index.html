@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Data Analyst Assistant</title>
+  <link rel="stylesheet" href="../css/style.css" />
+</head>
+<body>
+  <div class="nav">
+    <h1>Data Analyst Assistant</h1>
+    <button id="themeToggleBtn">Light</button>
+  </div>
+
+  <div class="container">
+
+    <h3>Upload Question (.txt):</h3>
+    <input type="file" id="questionsFile" accept=".txt"/>
+
+    <h3>Optional: Upload Data (.csv or .json)</h3>
+    <input type="file" id="dataFile" accept=".csv,.json"/>
+
+    <button onclick="submitToAPI()">Submit ➤</button>
+    <div id="loader" style="display: none;">⏳ Thinking...</div>
+
+    <h3>Response:</h3>
+    <pre id="jsonResponse"></pre>
+
+    <img id="scatterPlot" style="display:none; max-width: 100%; margin-top: 20px;"/>
+  </div>
+
+  <script src="../js/index.js"></script>
+</body>
+</html>
