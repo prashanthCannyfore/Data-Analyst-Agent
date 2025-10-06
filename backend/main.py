@@ -52,7 +52,7 @@ con.execute("""
     )
 """)
 
-embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+embedding_model = SentenceTransformer("paraphrase-MiniLM-L3-v2")
 
 def clean_gemini_response(text: str) -> str:
     return re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip(), flags=re.IGNORECASE)
