@@ -6,78 +6,47 @@ document.getElementById("themeToggleBtn").addEventListener("click", () => {
   document.getElementById("themeToggleBtn").textContent = next === "dark" ? "Dark" : "Light";
 });
 
-document.getElementById("questionsFile").addEventListener("change", function () {
-  if (this.files.length) {
-    console.log("Question file selected:", this.files[0].name);
-  }
-});
-
-document.getElementById("dataFile").addEventListener("change", function () {
-  if (this.files.length) {
-    console.log("Data file selected:", this.files[0].name);
-  }
-});
-
 async function submitToAPI() {
   const questionsFile = document.getElementById("questionsFile").files[0];
   const dataFile = document.getElementById("dataFile").files[0];
+  const imageFile = document.getElementById("imageFile").files[0];
   const loader = document.getElementById("loader");
   const jsonResponse = document.getElementById("jsonResponse");
   const scatterPlot = document.getElementById("scatterPlot");
 
   if (!questionsFile) {
-    alert("Please upload a .txt file with your question(s).");
+    alert("Please upload a .txt file with your question.");
     return;
   }
 
   const formData = new FormData();
-  formData.append("questions_txt", questionsFile);
+  formData.append("questions", questionsFile);
 
-  if (dataFile) {
-    const ext = dataFile.name.split(".").pop().toLowerCase();
-    if (ext === "csv") {
-      formData.append("data_csv", dataFile);
-    } else if (ext === "json") {
-      formData.append("data_json", dataFile);
-    } else {
-      alert("Unsupported data file format. Use .csv or .json");
-      return;
-    }
-  }
+  if (dataFile) formData.append("data", dataFile);
+  if (imageFile) formData.append("image", imageFile);
 
   loader.style.display = "block";
   jsonResponse.textContent = "";
-  scatterPlot.src = "";
   scatterPlot.style.display = "none";
+  scatterPlot.src = "";
 
   try {
-    const res = await fetch("http://localhost:8000/api/", {
+    const response = await fetch("http://localhost:8000/api/", {
       method: "POST",
       body: formData,
     });
 
-    const data = await res.json();
+    const data = await response.json();
     loader.style.display = "none";
 
-    if (data && typeof data === "object") {
-      jsonResponse.textContent = JSON.stringify(data, null, 2);
-
-      const base64Plot = Object.values(data).find(
-        v => typeof v === "string" && v.startsWith("data:image/png;base64,")
-      );
-
-      if (base64Plot) {
-        scatterPlot.src = base64Plot;
-        scatterPlot.style.display = "block";
-      }
-    } else {
-      jsonResponse.textContent = "Unexpected response format.";
+    if (data.plot_code && data.plot_code.startsWith("data:image/png;base64,")) {
+      scatterPlot.src = data.plot_code;
+      scatterPlot.style.display = "block";
     }
 
+    jsonResponse.textContent = JSON.stringify(data, null, 2);
   } catch (err) {
     loader.style.display = "none";
-    jsonResponse.textContent = "❌ Error: " + err.message;
-    console.error("Error submitting to API:", err);
+    jsonResponse.textContent = "Error: " + err.message;
   }
 }
-

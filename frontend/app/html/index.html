@@ -13,12 +13,14 @@
   </div>
 
   <div class="container">
-
     <h3>Upload Question (.txt):</h3>
     <input type="file" id="questionsFile" accept=".txt"/>
 
     <h3>Optional: Upload Data (.csv or .json)</h3>
     <input type="file" id="dataFile" accept=".csv,.json"/>
+
+    <h3>Optional: Upload Image (.png, .jpg)</h3>
+    <input type="file" id="imageFile" accept=".png,.jpg,.jpeg"/>
 
     <button onclick="submitToAPI()">Submit ➤</button>
     <div id="loader" style="display: none;">⏳ Thinking...</div>

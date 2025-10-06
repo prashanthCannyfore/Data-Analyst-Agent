@@ -1,255 +1,283 @@
+from io import StringIO, BytesIO
 import os
-import pandas as pd
-import io
-import json
 import re
-import requests
+import json
 import base64
-import matplotlib.pyplot as plt
-from io import StringIO
-from fastapi import FastAPI, UploadFile, File, HTTPException
-from fastapi.responses import JSONResponse
-from dotenv import load_dotenv
-from langchain_google_genai import ChatGoogleGenerativeAI
 import time
 import logging
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+import duckdb
+import requests
+import pandas as pd
+import numpy as np
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+from typing import Optional
+from fastapi import FastAPI, File, UploadFile
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from PIL import Image
+from bs4 import BeautifulSoup
+import google.generativeai as genai
+from sentence_transformers import SentenceTransformer
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("data-analyst-agent")
 
-# === Load environment variables ===
-load_dotenv()
+EMBED_DIR = "./embedding_store"
+os.makedirs(EMBED_DIR, exist_ok=True)
+DUCKDB_PATH = os.path.join(EMBED_DIR, "embeddings.duckdb")
+
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 if not GOOGLE_API_KEY:
-    raise ValueError("GOOGLE_API_KEY not set in .env file.")
-os.environ["GOOGLE_API_KEY"] = GOOGLE_API_KEY
+    raise EnvironmentError("GOOGLE_API_KEY environment variable not set")
+genai.configure(api_key=GOOGLE_API_KEY)
+model = genai.GenerativeModel("gemini-2.5-flash")
 
-# === Initialize Gemini LLM ===
-llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.2)
-
-# === FastAPI app ===
 app = FastAPI(title="Data Analyst Agent")
-
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # For dev/testing, allow all. In prod, specify your frontend origins
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# === Configure Logging ===
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+con = duckdb.connect(DUCKDB_PATH)
+con.execute("""
+    CREATE TABLE IF NOT EXISTS embeddings (
+        chunk_id INTEGER,
+        text STRING,
+        vector BLOB
+    )
+""")
 
-def extract_url(text: str) -> str | None:
-    match = re.search(r'(https?://[^\s]+)', text)
-    return match.group(0) if match else None
+embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
 
-def scrape_data_from_url(url: str) -> pd.DataFrame | None:
+def clean_gemini_response(text: str) -> str:
+    return re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip(), flags=re.IGNORECASE)
+
+def call_gemini_with_retry(prompt, retries=3, delay=60):
+    for attempt in range(1, retries + 1):
+        try:
+            response = model.generate_content(prompt)
+            content = response.text.strip()
+            if not content:
+                raise ValueError("Empty Gemini response.")
+            return content
+        except Exception as e:
+            logger.warning(f"Gemini error: {e}")
+            if attempt == retries:
+                raise
+            time.sleep(delay)
+            delay *= 2
+
+def extract_url(text: str) -> Optional[str]:
+    match = re.search(r"(https?://[^\s]+)", text)
+    return match.group(1) if match else None
+
+def scrape_page_all_data(url: str) -> tuple[str, list[pd.DataFrame]]:
     try:
-        headers = {"User-Agent": "Mozilla/5.0"}
-        response = requests.get(url, headers=headers, timeout=30)
+        response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
         response.raise_for_status()
-        tables = pd.read_html(StringIO(response.text))
-        logger.info(f"Found {len(tables)} tables")
-
-        if not tables:
-            return None
-
-        for idx, table in enumerate(tables):
-            if isinstance(table.columns, pd.MultiIndex):
-                table.columns = [' '.join(str(c) for c in col).strip() for col in table.columns]
-            else:
-                table.columns = [str(c) for c in table.columns]
-
-            logger.info(f"Using table #{idx} with columns: {table.columns.tolist()}")
-
-            lower_cols = [c.lower() for c in table.columns]
-            if ("rank" in lower_cols or "#" in lower_cols or "weeks at number one" in lower_cols or "weeks at number one 2020" in lower_cols) and \
-               ("peak" in lower_cols or "weeks at number one" in lower_cols or "weeks at number one 2020" in lower_cols):
-                if not table.empty:
-                    return table
-
-        if not tables[0].empty:
-            return tables[0]
+        soup = BeautifulSoup(response.text, "html.parser")
+        for tag in soup(["script", "style", "iframe", "img"]):
+            tag.decompose()
+        texts = [el.get_text(strip=True) for el in soup.find_all(['p', 'h1', 'h2', 'li', 'td', 'th']) if el.get_text(strip=True)]
+        tables = pd.read_html(response.text)
+        return "\n".join(texts), tables
     except Exception as e:
-        logger.exception("Scraping error")
-    return None
+        logger.warning(f"Scraping failed: {e}")
+        return "", []
 
-def generate_scatterplot(df: pd.DataFrame) -> str | None:
+
+def analyze_image_with_gemini(image: Image.Image) -> str:
     try:
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = [' '.join(str(c) for c in col).strip() for col in df.columns]
-
-        logger.info(f"Available columns for plot: {df.columns.tolist()}")
-
-        possible_x = [col for col in df.columns if 'rank' in col.lower() or '#' in col.lower() or 'position' in col.lower()]
-        possible_y = [col for col in df.columns if 'peak' in col.lower() or 'weeks at number' in col.lower()]
-
-        if not possible_x or not possible_y:
-            raise ValueError("No suitable columns for scatterplot.")
-
-        x_col = possible_x[0]
-        y_col = possible_y[0]
-
-        logger.info(f"Plotting: x='{x_col}' vs y='{y_col}'")
-
-        df[x_col] = pd.to_numeric(df[x_col], errors='coerce')
-        df[y_col] = pd.to_numeric(df[y_col], errors='coerce')
-        df_clean = df.dropna(subset=[x_col, y_col])
-
-        plt.figure(figsize=(8, 6))
-        plt.scatter(df_clean[x_col], df_clean[y_col], color='blue', label=f"{x_col} vs {y_col}")
-        plt.plot(df_clean[x_col], df_clean[y_col], linestyle='--', color='red', label="Trend")
-        plt.xlabel(x_col)
-        plt.ylabel(y_col)
-        plt.legend()
-        buf = io.BytesIO()
-        plt.savefig(buf, format="png")
-        plt.close()
+        buf = BytesIO()
+        image.save(buf, format="PNG")
         buf.seek(0)
-        img = base64.b64encode(buf.read()).decode('utf-8')
-        return f"data:image/png;base64,{img}"
+        image_bytes = buf.read()
+        image_data = {"mime_type": "image/png", "data": image_bytes}
+        gemini_input = [image_data, "Describe this image in one sentence."]
+        response = model.generate_content(gemini_input)
+        return response.text.strip()
     except Exception as e:
-        logger.exception("Plot generation failed")
-        return None
+        logger.warning(f"Gemini image analysis failed: {e}")
+        return "Could not analyze image."
+
+def execute_plot_code(code: str, tables: dict) -> str:
+    try:
+        local_vars = tables.copy()
+        exec_globals = {"plt": plt, "pd": pd, "BytesIO": BytesIO, "base64": base64}
+        plt.clf()
+        exec(code, exec_globals, local_vars)
+
+        if "image_base64" in local_vars:
+            return local_vars["image_base64"]
+
+        buf = BytesIO()
+        plt.tight_layout()
+        plt.savefig(buf, format="png", dpi=150)
+        buf.seek(0)
+        encoded = base64.b64encode(buf.read()).decode()
+        return f"data:image/png;base64,{encoded}"
+    except Exception as e:
+        logger.warning(f"Plot code failed: {e}")
+        return "data:image/png;base64,"
+
+def extract_text_chunks_from_dfs(df_list: list[pd.DataFrame]) -> list[str]:
+    chunks = []
+    for idx, df in enumerate(df_list):
+        for i, row in df.iterrows():
+            text = " | ".join([f"{col}: {row[col]}" for col in df.columns if pd.notna(row[col])])
+            if text.strip():
+                chunks.append(text)
+    return chunks
+
+def embed_and_store(chunks: list[str]):
+    if not chunks:
+        return
+    embeddings = embedding_model.encode(chunks, convert_to_numpy=True)
+    embeddings /= np.linalg.norm(embeddings, axis=1, keepdims=True) + 1e-12
+
+    con.execute("DELETE FROM embeddings")
+    for i, vec in enumerate(embeddings):
+        vec_bytes = vec.astype(np.float32).tobytes()
+        con.execute("INSERT INTO embeddings VALUES (?, ?, ?)", (i, chunks[i], vec_bytes))
+
+def search_similar_chunks(question: str, top_k: int = 5) -> list[str]:
+    query_emb = embedding_model.encode([question], convert_to_numpy=True)[0]
+    query_emb /= np.linalg.norm(query_emb) + 1e-12
+
+    results = con.execute("SELECT chunk_id, text, vector FROM embeddings").fetchall()
+    scores = []
+    for chunk_id, text, vec_blob in results:
+        vec = np.frombuffer(vec_blob, dtype=np.float32)
+        sim = float(np.dot(query_emb, vec))
+        scores.append((text, sim))
+    scores.sort(key=lambda x: x[1], reverse=True)
+    return [text for text, _ in scores[:top_k]]
 
 @app.post("/api/")
 async def data_analyst_agent(
-    questions_txt: UploadFile = File(...),
-    data_csv: UploadFile | None = File(default=None),
-    data_json: UploadFile | None = File(default=None)
+    questions: UploadFile = File(...),
+    data: Optional[UploadFile] = File(None),
+    image: Optional[UploadFile] = File(None)
 ):
-    start_time = time.time()
+    start = time.time()
 
     try:
-        questions_text = (await questions_txt.read()).decode("utf-8")
-        logger.info("Received questions")
+        question_text = (await questions.read()).decode("utf-8")
+        url = extract_url(question_text)
+        conn = duckdb.connect(database=":memory:")
+        all_tables = {}
+        scraped_tables = []
+        all_text = ""
 
-        url = extract_url(questions_text)
-        df_from_url = scrape_data_from_url(url) if url else None
-        logger.info(f"Scraped df from URL: {url is not None}")
+        if url:
+            all_text, dfs = scrape_page_all_data(url)
+            scraped_tables = dfs[:3]
+            for idx, df in enumerate(scraped_tables):
+                conn.register(f"table_{idx}", df)
+                all_tables[f"table_{idx}"] = df
 
-        df_from_upload = None
-        if data_csv:
+        if data:
             try:
-                df_from_upload = pd.read_csv(io.BytesIO(await data_csv.read()))
-                logger.info("Loaded CSV upload")
-            except Exception:
-                logger.exception("Error reading CSV")
-                raise HTTPException(status_code=400, detail="Invalid CSV file format.")
-        elif data_json:
-            try:
-                df_from_upload = pd.read_json(io.BytesIO(await data_json.read()))
-                logger.info("Loaded JSON upload")
-            except Exception:
-                logger.exception("Error reading JSON")
-                raise HTTPException(status_code=400, detail="Invalid JSON file format.")
+                contents = await data.read()
+                csv_text = contents.decode("utf-8")
+                print("=== CSV Contents ===")
+                print(csv_text)
+                df_csv = pd.read_csv(StringIO(csv_text))
+                conn.register("csv_data", df_csv)
+                all_tables["csv_data"] = df_csv
+                scraped_tables.append(df_csv)
+            except Exception as e:
+                logger.warning(f"CSV error: {e}")
+                return JSONResponse(content=["unknown", "CSV error", 0.0, "data:image/png;base64,"])
+    
+        if not scraped_tables:
+            return JSONResponse(content=["unknown", "No data found", 0.0, "data:image/png;base64,"])
 
-        # ✅ Avoid ambiguous truth value
-        df = None
-        if df_from_upload is not None:
-            df = df_from_upload
-        elif df_from_url is not None:
-            df = df_from_url
+        chunks = extract_text_chunks_from_dfs(scraped_tables)
+        embed_and_store(chunks)
+        relevant_chunks = search_similar_chunks(question_text, top_k=5)
 
-        if df is None or df.empty:
-            raise HTTPException(status_code=400, detail="No data available.")
+        data_summary = "\n".join([f"- {chunk}" for chunk in relevant_chunks])
+        context_text = all_text[:2000]
 
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = [' '.join(str(c) for c in col).strip() for col in df.columns]
-
-        try:
-            import tabulate
-            data_preview = tabulate.tabulate(df.head(5), headers='keys', tablefmt='pipe', showindex=False)
-        except ImportError:
-            data_preview = df.head(5).to_csv(index=False)
+        image_description = ""
+        if image:
+            image_obj = Image.open(image.file)
+            image_description = analyze_image_with_gemini(image_obj)
 
         prompt = f"""
-You are a helpful data analyst assistant.
+You are a professional data analyst assistant.
 
-Answer the following questions using the provided data sample. 
-Return your answers as a JSON array or object. 
-**Return ONLY raw JSON. DO NOT include explanations, markdown code blocks, or anything else.**
+Answer the user's data-related question based on the provided information.
+Your response must be a valid JSON object. Return only JSON — no text outside of it.
 
-User Questions:
-{questions_text}
+### Input Details:
 
-Data Sample:
-{data_preview}
+- User Question:
+{question_text}
 
-If a plot is requested, just say: "Plot will be generated separately."  
+- Data Chunks (filtered from scraped or uploaded data):
+{data_summary}
+
+
+- Image Description:
+{image_description if image_description else "No description available."}
+
+- Page Text (for context, if scraped from URL):
+{context_text}
+
+---
+
+### Response Format (strict):
+
+Return a single JSON object using only these allowed keys:
+
+- "answer": (string) → A short sentence directly answering the question.
+- "details": (optional, string) → Add reasoning or context here.
+- "confidence": (optional, float) → A value between 0 and 1.
+- "plot_code": (optional, string) → Python code to generate a plot using matplotlib, referencing tables like df, table_0, etc.
+
+Important constraints:
+- DO NOT return any base64 image data.
+- DO NOT include actual plot images or previews.
+- DO NOT wrap JSON in markdown code blocks.
+- DO NOT return the plot as string. Only return plot_code if a plot is necessary.
+
+Example (valid):
+
+{{  
+  "answer": "The Titanic dataset shows that survival rate was higher for females.",
+  "confidence": 0.91,
+  "plot_code": "plt.figure(figsize=(8,6)); df['Sex'].value_counts().plot(kind='bar'); plt.title('Gender Distribution')"
+}}
 """
 
-        logger.info("Prompt ready")
-
-        llm_response = None
-        with ThreadPoolExecutor() as executor:
-            for attempt in range(3):
-                try:
-                    logger.info(f"Attempt {attempt+1} to invoke LLM")
-                    llm_future = executor.submit(lambda: llm.invoke(prompt))
-                    rem = 300 - (time.time() - start_time)
-                    timeout_for_call = min(rem, 300)
-                    llm_response = llm_future.result(timeout=timeout_for_call)
-                    logger.info("LLM responded")
-                    break
-                except FutureTimeoutError:
-                    logger.warning("LLM invocation timed out on this attempt")
-                    if attempt == 2:
-                        raise HTTPException(status_code=500, detail="LLM invocation timed out after retries")
-                    time.sleep(5)
-                except Exception:
-                    logger.exception("LLM invocation error")
-                    raise HTTPException(status_code=500, detail="LLM invocation failed")
-
-        content = llm_response.content if hasattr(llm_response, "content") else str(llm_response)
-
-        # ✅ Strip markdown code blocks if present
-        content = content.strip()
-        if content.startswith("```json"):
-            content = content.replace("```json", "").strip()
-        if content.endswith("```"):
-            content = content[:-3].strip()
+        logger.info("Calling Gemini...")
+        response_text = call_gemini_with_retry(prompt)
 
         try:
-            answers = json.loads(content)
-        except Exception as e:
-            logger.error(f"Error parsing LLM response: {e}")
-            answers = {"raw_response": content}
+            cleaned = clean_gemini_response(response_text)
+            parsed_response = json.loads(cleaned)
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON Decode Error: {e}")
+            logger.debug(f"Raw Gemini Output: {response_text}")
+            return JSONResponse(content={"answer": "unknown", "details": "Gemini returned malformed JSON."})
 
-        plot_uri = None
-        try:
-            if "scatterplot" in questions_text.lower():
-                plot_uri = generate_scatterplot(df)
-                if plot_uri:
-            # If answers is a dict, look for the "plot will be generated separately" and replace
-                    if isinstance(answers, dict):
-                        for k in answers:
-                            if isinstance(answers[k], str) and "plot will be generated separately" in answers[k].lower():
-                                answers[k] = plot_uri
-                                break
-            # If answers is a list, scan each item and update if applicable
-                    elif isinstance(answers, list):
-                        for i, item in enumerate(answers):
-                            if isinstance(item, str) and "plot will be generated separately" in item.lower():
-                                answers[i] = plot_uri
-                                break
-        except Exception:
-            logger.exception("Scatterplot generation failed")
+        plot_code = parsed_response.get("plot_code", "")
+        if plot_code and ("plt" in plot_code or "image_base64" in plot_code):
+            parsed_response["plot_code"] = execute_plot_code(plot_code, all_tables)
 
+        logger.info(f"Done in {time.time() - start:.2f} seconds")
 
-        elapsed = time.time() - start_time
-        if elapsed > 300:
-            logger.error("Overall request exceeded 5 minutes")
-            raise HTTPException(status_code=500, detail="Timeout exceeded")
+        response_content = {k: v for k, v in parsed_response.items() if v is not None and v != ""}
 
-        return JSONResponse(content=answers)
+        return JSONResponse(content=response_content)
 
-    except HTTPException as he:
-        raise he
     except Exception as e:
-        logger.exception("Unhandled error in API")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Fatal error")
+        return JSONResponse(content=["unknown", "Unhandled error", 0.0, "data:image/png;base64,"])

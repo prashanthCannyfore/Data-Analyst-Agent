@@ -3,6 +3,7 @@
 *::after {
   box-sizing: border-box;
 }
+
 html,
 body {
   margin: 0;
@@ -11,6 +12,7 @@ body {
   overflow-x: hidden;
   width: 100%;
 }
+
 :root {
   --bg-color: #ffffffff;
   --text-color: #000000;
@@ -39,30 +41,6 @@ body {
   --tablenth-bg-color: #3b3b3b;
 }
 
-.file-input {
-  display: none;
-}
-.upload-button {
-  display: inline-block;
-  padding: 10px 17px;
-  background-color: var(--button-bg-color);
-  color: #fff;
-  font-size: 20px;
-  border: none;
-  border-radius: 360px;
-  cursor: pointer;
-  transition: background 0.3s ease;
-}
-
-.download-button {
-  padding: 10px 17px;
-  background-color: var(--submit-bg-color);
-  border: none;
-  font-size: 20px;
-
-  border-radius: 360px;
-}
-
 body {
   background-color: var(--color-bg);
   color: var(--color-fg);
@@ -71,21 +49,6 @@ body {
 
 a {
   color: var(--primary-color);
-}
-/* Base styles */
-body {
-  background-color: #121212;
-  color: #fff;
-  font-family: sans-serif;
-  margin: 0;
-  padding: 20px;
-  box-sizing: border-box;
-}
-
-/* Light theme toggle */
-[data-theme="light"] {
-  background-color: #f4f4f4;
-  color: #000;
 }
 
 .nav {

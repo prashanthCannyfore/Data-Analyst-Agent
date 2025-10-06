@@ -1,0 +1,9 @@
+# Python
+__pycache__/
+*.pyc
+*.env
+
+# Generated Data and Models
+embedding_store/
+yolov8n.pt
+../data.csv
