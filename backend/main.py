@@ -24,7 +24,7 @@ from sentence_transformers import SentenceTransformer
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("data-analyst-agent")
 
-EMBED_DIR = "./embedding_store"
+EMBED_DIR = "local_embedding_store"
 os.makedirs(EMBED_DIR, exist_ok=True)
 DUCKDB_PATH = os.path.join(EMBED_DIR, "embeddings.duckdb")
 
