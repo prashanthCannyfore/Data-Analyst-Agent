@@ -10,3 +10,4 @@ google-generativeai
 sentence-transformers
 faiss-cpu
 python-multipart
+beautifulsoup4
