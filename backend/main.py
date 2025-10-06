@@ -52,7 +52,7 @@ con.execute("""
     )
 """)
 
-embedding_model = SentenceTransformer("paraphrase-MiniLM-L3-v2")
+embedding_model = SentenceTransformer("all-MiniLM-L6-v1")
 
 def clean_gemini_response(text: str) -> str:
     return re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip(), flags=re.IGNORECASE)
@@ -84,7 +84,7 @@ def scrape_page_all_data(url: str) -> tuple[str, list[pd.DataFrame]]:
         for tag in soup(["script", "style", "iframe", "img"]):
             tag.decompose()
         texts = [el.get_text(strip=True) for el in soup.find_all(['p', 'h1', 'h2', 'li', 'td', 'th']) if el.get_text(strip=True)]
-        tables = pd.read_html(response.text)
+        tables = pd.read_html(StringIO(response.text))
         return "\n".join(texts), tables
     except Exception as e:
         logger.warning(f"Scraping failed: {e}")
