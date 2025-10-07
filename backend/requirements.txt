@@ -4,10 +4,7 @@ pandas
 duckdb
 requests
 matplotlib
-google-genai
 Pillow
 google-generativeai
 sentence-transformers
-faiss-cpu
-python-multipart
 beautifulsoup4
