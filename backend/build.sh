@@ -2,8 +2,8 @@
 # 1. Install dependencies
 pip install -r requirements.txt
 
-# 2. Force Matplotlib cache build (optional, but good practice)
-python -c "import matplotlib.pyplot as plt; plt.figure(); plt.savefig('/tmp/dummy.png')"
+# 2. REMOVE the Matplotlib cache line. If it runs at runtime, we cannot stop it here.
+# python -c "import matplotlib.pyplot as plt; plt.figure(); plt.savefig('/tmp/dummy.png')"
 
 # 3. Create and set the CORRECT START COMMAND with DEBUGGING
 # The debug level will show any internal Uvicorn or Starlette/FastAPI errors.
