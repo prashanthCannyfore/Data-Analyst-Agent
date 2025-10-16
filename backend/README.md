@@ -104,28 +104,26 @@ Answer the following questions and respond with a JSON array of strings containi
 
 ```
 Model = google/gemini-2.5-flash
-Api_key = sk-or-v1-4ee651d6882ad61
+Api_key ="AIzaSyC1yP9d6Z_ymeKpyTj8UE6O0znEHnT93s0"
 ```
 
 ## Testing the API with cURL
 
 ```bash
-
-curl -X POST "http://127.0.0.1:8000/api" \
-  -F "file=@uploaded_files/questions.txt" \
-  -F "image_file=@path/to/your/image.png" \
-  -F "csv_file=@path/to/your/file.csv"
+curl.exe -X POST `
+  'https://blakely-estimative-nonarbitrarily.ngrok-free.dev/api/' `
+  -H 'accept: application/json' `
+  -H 'Content-Type: multipart/form-data' `
+  -F 'questions=@questions.txt;type=text/plain' `
+  -F 'data=@sales.csv;type=text/csv' `
+  -F 'image=@Screenshot 2025-10-10 113427.png;type=image/png'
 
 ```
 
 ## Example JSON response
 
 ```
-["United States",
-"10 countries won more than 10 gold medals.",
-"ROC, 71",
-"iVBORw0KGgoAAAANSUhEUgAAAeoAAAGGCAYAAAC0W8IbAAAAOnRFWHRTb2Z0d2FyZQBNYXRwbG90bGliIHZlcnNpb24zLjEwLjYsIGh0dHBzOi8vbWF0cGxvdGxpYi5vcmcvq6yFwwAAAAlwSFlzAAAPYQAA "
-]
+[answer":"1. One movie (Titanic) grossed over $2 billion before 2000. 2. The earliest film that grossed over $1.5 billion is Titanic (1997). 3. The correlation between Rank and Peak is approximately -0.41.","confidence":0.95,"plot_code":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAABLAAAAOECAYAAACxbcj6AAAAOnRFWHRTb2Z0d2FyZQBNYXRwbG90bGliIHZlcnNpb24zLjEwL"]
 
 ```
 
