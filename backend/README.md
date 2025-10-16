@@ -94,7 +94,7 @@ Answer the following questions and respond with a JSON array of strings containi
 
 ## Get Your OpenRouter API Key
 
-[OpenRouter](https://openrouter.ai/)
+[Google api key [https://www.google.com/aclk?sa=L&ai=DChsSEwiF2uf4i6iQAxXcqmYCHTruM_MYACICCAEQARoCc20&ae=2&co=1&ase=2&gclid=EAIaIQobChMIhdrn-IuokAMV3KpmAh067jPzEAAYASABEgLODPD_BwE&cid=CAASrwHkaHt-sv77X3rCHizgDTzxYGdp1dNy2ibgQSBMS4mvT7-SmiOGgJ3sX_55Ftppn3WIUdpLL7gorUztb5tLZb3ytTOeuF5GxqlknTN0rYJ5FxAl5qBsmo5vp2wzL-Xq2O7eoToTAgwdzIQkyNiTjPaIM3npO_fHAjrMk2inpWiYVbJZWEYJ-EUfPa8O_9IZToXG_7q56G6C3-ZDeq5nQfwcGQK4O1meOn8g6IyZEcH-&cce=2&category=acrcp_v1_71&sig=AOD64_0AG-3nRKA_kotz2S0zXP-Vb6yGTQ&q&nis=4&adurl&ved=2ahUKEwjc3-L4i6iQAxXWRmwGHRncKHgQqyQoAHoECAsQDQ])
 
 - Sign up and get your API key
 
